@@ -6,14 +6,25 @@
 
 주요 스크립트
 
-- `docs-parser.py` – `.docx` 문서를 Markdown으로 변환하며 문단, 제목, 표, 이미지(추출) 및 하이퍼링크를 처리합니다.
+- `docs_parser.py` – `.docx` 문서를 Markdown으로 변환하며 문단, 제목, 표, 이미지(추출) 및 하이퍼링크를 처리합니다.
 - `md_chunker.py` – Markdown 파일을 지정한 헤딩 레벨(#) 기준으로 분할하고, 길이가 너무 긴 섹션은 문단 단위로 더 작은 청크로 나눕니다. 결과는 디스크에 여러 `.md` 파일과 `index.json`로 저장됩니다.
 
 ⚙️ 요구사항
 
 - Python 3.8+ (권장)
 - 설치 필요 패키지:
-  - python-docx (docs-parser.py에서 사용)
+  - python-docx (docs_parser.py에서 사용)
+
+  개발 / 테스트용 패키지:
+  - Pillow (이미지 생성/처리를 위해 테스트에서 사용)
+  - pytest (테스트 실행)
+
+  로컬에서 테스트를 실행하려면 다음을 사용하세요:
+
+  ```powershell
+  python -m pip install -r requirements.txt
+  pytest -q
+  ```
 
 간단 설치 (venv 권장)
 
@@ -26,23 +37,44 @@ python -m pip install python-docx
 
 ---
 
-사용법 — docs-parser.py
+- 사용법 — docs_parser.py
 
-`docs-parser.py`는 현재 파일 하단의 실행 예시를 통해 바로 실행할 수 있습니다. 예시 부분의 경로를 실제 파일 경로로 바꾼 뒤 실행하세요.
+`docs_parser.py`는 디렉토리에 있는 모든 `.docx` 파일을 찾아 각 파일을 Markdown으로 변환하는 배치 모드와 단일 파일 변환 기능을 제공합니다. 실행 시 입력 폴더와 출력 폴더를 지정해 사용합니다.
+
+예시 — 디렉토리 전체를 한 번에 변환 (PowerShell):
 
 ```powershell
-# docs-parser.py 파일 안의 예시 경로를 사용자 환경에 맞게 수정한 뒤
-python docs-parser.py
+# input-dir 내 모든 .docx 파일을 찾아 output-dir으로 .md와 이미지 폴더를 출력
+python docs_parser.py --input-dir C:\path\to\docx_folder --output-dir C:\path\to\output_folder
+
+# 하위 폴더까지 재귀적으로 탐색
+python docs_parser.py --input-dir C:\path\to\docx_folder --output-dir C:\path\to\output_folder --recursive
+
+# 상세 출력 보기 (INFO 레벨)
+python docs_parser.py --input-dir C:\path\to\docx_folder --output-dir C:\path\to\output_folder --verbose
 ```
 
-스크립트는 다음을 수행합니다:
+예시 — 단일 .docx 파일 변환 (PowerShell):
+
+```powershell
+python docs_parser.py --file C:\path\to\file.docx --output-dir C:\path\to\output_folder
+```
+
+스크립트가 수행하는 작업(요약):
 - 문서의 문단을 Markdown로 변환
 - 스타일이 Heading이면 적절한 Markdown 제목(#)으로 변환
 - 표는 Markdown 테이블 형태로 출력
 - 삽입된 이미지는 지정된 폴더로 추출하고 Markdown에 링크 추가
 - 하이퍼링크는 [텍스트](URL) 형태로 변환
 
-※ 참고: `docs-parser.py`는 라이브러리 함수 `docx_to_markdown_full`를 노출하므로, 필요하다면 직접 임포트해 재사용하거나 실행부를 수정하여 CLI 인자 파싱 기능을 추가할 수 있습니다.
+추가 옵션 설명:
+- `--input-dir` (필수) : 변환할 `.docx` 파일이 들어있는 폴더
+- `--output-dir` (필수) : 변환된 `.md` 파일과 이미지가 생성될 폴더
+- `--images-subdir` : 각 파일별 이미지 폴더의 접미사 (기본값: `images`). 예: `MyDoc_images/`
+- `--recursive` : 하위 폴더까지 포함하여 `.docx` 파일을 찾습니다
+- `--quiet` / `--verbose` : 로그 출력 레벨 제어 (--verbose는 INFO 레벨 출력)
+
+※ 참고: `docs_parser.py`는 라이브러리 함수 `docx_to_markdown_full`를 노출하므로, 필요하다면 직접 임포트해 재사용하거나 실행부를 수정하여 CLI 인자 파싱 기능을 추가할 수 있습니다.
 
 ---
 
@@ -70,7 +102,7 @@ python md_chunker.py C:\path\to\output.md --out-dir C:\path\to\output_chunks --l
 
 개발자 가이드 / 확장 아이디어
 
-- `docs-parser.py`에 CLI 인자 파싱을 추가하여 입력/출력 경로와 이미지 폴더를 인자로 받도록 개선
+- `docs_parser.py`에 CLI 인자 파싱을 추가하여 입력/출력 경로와 이미지 폴더를 인자로 받도록 개선
 - 마크다운 변환 품질 향상 (인라인 스타일, 리스트, 인용, 코드 블록 등 추가 파싱)
 - 병렬 이미지 추출 및 파일명 충돌 보호
 - 더 나은 파일명 정규화/충돌 해결 로직
