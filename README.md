@@ -11,113 +11,88 @@
 
 ⚙️ 요구사항
 
-- Python 3.8+ (권장)
-- 설치 필요 패키지:
-  - python-docx (docs_parser.py에서 사용)
+# dnshine_doc-file-parser
 
-  개발 / 테스트용 패키지:
-  - Pillow (이미지 생성/처리를 위해 테스트에서 사용)
-  - pytest (테스트 실행)
+간단한 문서 변환 및 분할 도구 모음
 
-  로컬에서 테스트를 실행하려면 다음을 사용하세요:
+이 저장소는 다음 두 가지 주요 스크립트를 포함합니다:
 
-  ```powershell
-  python -m pip install -r requirements.txt
-  pytest -q
+- **`docs-parser.py`**  
+  `.docx` 파일을 Markdown으로 변환합니다.  
+  - 문단, 제목 스타일을 Markdown 헤딩으로 변환  
+  - 표를 Markdown 표 형식으로 변환  
+  - 삽입 이미지 추출 및 Markdown에 이미지 링크 삽입  
+  - 하이퍼링크 처리  
+  - 단일 파일 변환과 디렉토리 배치 변환 모드 지원  
+  - CLI 인자: `--file` 또는 `--input-dir`, `--output-dir`, `--images-subdir`, `--recursive`, `--quiet`, `--verbose`
+
+- **`excel-parser.py`**  
+  Excel `.xlsx` 파일의 시트를 Markdown 표로 변환합니다.  
+  - 특정 시트 또는 모든 시트 변환 가능  
+  - MarkdownTableWriter를 사용하여 표 출력  
+  - CLI 인자: `--file` (필수), `--output-dir`, `--sheet`, `--quiet`, `--verbose`  
+
+---
+
+## 요구사항 및 설치
+
+- Python 3.8 이상 권장  
+- 필수 패키지 설치 (최소):  
+  ```
+  python -m pip install python-docx pandas openpyxl pytablewriter
+  ```
+- (옵션) 테스트용: `pytest`, `Pillow`
+
+---
+
+## 사용법 예시
+
+### docs-parser.py
+
+- 디렉토리 배치 변환 (하위폴더 재귀 포함):  
+  ```
+  python docs-parser.py --input-dir path/to/docx_folder --output-dir path/to/output_folder --recursive --verbose
   ```
 
-간단 설치 (venv 권장)
-
-```powershell
-# 윈도우즈 PowerShell 예시
-python -m venv .venv; .\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install python-docx
-```
+- 단일 파일 변환:  
+  ```
+  python docs-parser.py --file path/to/file.docx --output-dir path/to/output_folder
+  ```
 
 ---
 
-- 사용법 — docs_parser.py
+### excel-parser.py
 
-`docs_parser.py`는 디렉토리에 있는 모든 `.docx` 파일을 찾아 각 파일을 Markdown으로 변환하는 배치 모드와 단일 파일 변환 기능을 제공합니다. 실행 시 입력 폴더와 출력 폴더를 지정해 사용합니다.
+- 전체 시트 Markdown 변환 (기본, 모든 시트):  
+  ```
+  python excel-parser.py --file path/to/file.xlsx --output-dir path/to/output_folder
+  ```
 
-예시 — 디렉토리 전체를 한 번에 변환 (PowerShell):
-
-```powershell
-# input-dir 내 모든 .docx 파일을 찾아 output-dir으로 .md와 이미지 폴더를 출력
-python docs_parser.py --input-dir C:\path\to\docx_folder --output-dir C:\path\to\output_folder
-
-# 하위 폴더까지 재귀적으로 탐색
-python docs_parser.py --input-dir C:\path\to\docx_folder --output-dir C:\path\to\output_folder --recursive
-
-# 상세 출력 보기 (INFO 레벨)
-python docs_parser.py --input-dir C:\path\to\docx_folder --output-dir C:\path\to\output_folder --verbose
-```
-
-예시 — 단일 .docx 파일 변환 (PowerShell):
-
-```powershell
-python docs_parser.py --file C:\path\to\file.docx --output-dir C:\path\to\output_folder
-```
-
-스크립트가 수행하는 작업(요약):
-- 문서의 문단을 Markdown로 변환
-- 스타일이 Heading이면 적절한 Markdown 제목(#)으로 변환
-- 표는 Markdown 테이블 형태로 출력
-- 삽입된 이미지는 지정된 폴더로 추출하고 Markdown에 링크 추가
-- 하이퍼링크는 [텍스트](URL) 형태로 변환
-
-추가 옵션 설명:
-- `--input-dir` (필수) : 변환할 `.docx` 파일이 들어있는 폴더
-- `--output-dir` (필수) : 변환된 `.md` 파일과 이미지가 생성될 폴더
-- `--images-subdir` : 각 파일별 이미지 폴더의 접미사 (기본값: `images`). 예: `MyDoc_images/`
-- `--recursive` : 하위 폴더까지 포함하여 `.docx` 파일을 찾습니다
-- `--quiet` / `--verbose` : 로그 출력 레벨 제어 (--verbose는 INFO 레벨 출력)
-
-※ 참고: `docs_parser.py`는 라이브러리 함수 `docx_to_markdown_full`를 노출하므로, 필요하다면 직접 임포트해 재사용하거나 실행부를 수정하여 CLI 인자 파싱 기능을 추가할 수 있습니다.
+- 특정 시트만 변환:  
+  ```
+  python excel-parser.py --file path/to/file.xlsx --sheet Sheet1 --output-dir path/to/output_folder
+  ```
 
 ---
 
-사용법 — md_chunker.py
+## 개발 및 확장 아이디어
 
-`md_chunker.py`는 Command-line 인터페이스를 제공합니다. 예:
-
-```powershell
-python md_chunker.py C:\path\to\output.md --out-dir C:\path\to\output_chunks --level 1 --max-chars 20000 --min-chars 500 --prefix page
-```
-
-주요 옵션:
-- `infile` : 분할할 Markdown 파일 경로
-- `--out-dir` : 청크를 쓸 출력 폴더 (기본: `./md_chunks`)
-- `--level` : 헤딩 레벨(1 ~ 6) — 이 레벨의 헤딩을 기준으로 분할합니다
-- `--max-chars` : 청크 최대 문자 수 (기본: 10000), 넘칠 경우 문단 단위로 분할 시도
-- `--min-chars` : 작은 청크 병합을 고려하는 기준 길이(기본: 200)
-- `--prefix` : 생성 파일 이름 접두사
-
-출력:
-- 여러 개의 `NNN_prefix_{heading}.md` 파일
-- `index.json` : 생성된 파일 목록 및 메타(파일명, 헤딩, 문자 수)
+- 변환 품질 향상: 리스트, 코드 블록, 인용 등 Markdown 요소 추가 파싱  
+- 대규모 문서 병렬 처리 및 진행률 표시  
+- 명명 충돌 방지를 위한 파일명 고도화  
+- GUI 앱 또는 웹 인터페이스 개발  
 
 ---
 
-개발자 가이드 / 확장 아이디어
+## 기여 및 라이선스
 
-- `docs_parser.py`에 CLI 인자 파싱을 추가하여 입력/출력 경로와 이미지 폴더를 인자로 받도록 개선
-- 마크다운 변환 품질 향상 (인라인 스타일, 리스트, 인용, 코드 블록 등 추가 파싱)
-- 병렬 이미지 추출 및 파일명 충돌 보호
-- 더 나은 파일명 정규화/충돌 해결 로직
+- Fork 및 Pull Request 환영  
+- 이 저장소에는 현재 LICENSE 파일이 없습니다. 필요 시 라이선스 추가 권장  
 
 ---
 
-기여 및 라이선스
+## 문의
 
-- 개선 사항이나 버그 리포트는 Pull Request 또는 Issue로 환영합니다.
-- 현재 저장소에 LICENSE 파일이 없습니다. 사용/배포 시 라이선스를 명시하려면 `LICENSE` 파일을 추가하세요.
+저자: ehdnshine-AI (dnshine_doc-file-parser)
 
----
-
-문의
-
-저자: ehdnshine-AI (저장소: dnshine_doc-file-parser)
-
-즐겁게 사용하세요! ✨
+즐겁게 사용하세요! ✨
