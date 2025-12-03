@@ -1,9 +1,11 @@
-import pandas as pd
-import os
+
 import argparse
 import logging
+import os
 import pathlib
 import sys
+
+import pandas as pd
 from pytablewriter import MarkdownTableWriter
 
 def excel_sheet_to_markdown(excel_path, sheet_name, md_path):
@@ -75,9 +77,6 @@ if __name__ == "__main__":
         logger.exception("Unexpected error: %s", e)
         sys.exit(1)
 
-import pandas as pd
-from pytablewriter import MarkdownTableWriter
-import os
 
 def excel_to_markdown(
     excel_path: str,
@@ -108,4 +107,36 @@ def excel_to_markdown(
         print(f"Wrote sheet {s} → {out_path}")
 
 if __name__ == "__main__":
-    excel_to_markdown("/home/dnshine/python-files/git_sources/dnsine_doc-file-parser/1990s_movies.xlsx", "./excel-md_output")
+    ap = argparse.ArgumentParser(description="Convert Excel sheets to Markdown files")
+    ap.add_argument("--file", required=True, help="Excel file to convert")
+    ap.add_argument("--output-dir", default=None, help="Output directory for markdown files (default: input file's folder)")
+    ap.add_argument("--sheet", default=None, help="Sheet name to convert (default: all sheets)")
+    ap.add_argument("--quiet", action="store_true", help="Minimal output")
+    ap.add_argument("--verbose", action="store_true", help="Detailed info logging")
+
+    args = ap.parse_args()
+
+    log_level = logging.WARNING
+    if args.quiet:
+        log_level = logging.ERROR
+    elif args.verbose:
+        log_level = logging.INFO
+    logging.basicConfig(level=log_level, format="[%(levelname)s] %(message)s")
+    logger = logging.getLogger("excel-parser")
+
+    try:
+        fpath = pathlib.Path(args.file)
+        if not fpath.exists() or not fpath.is_file():
+            logger.error("Input file does not exist or is not a file: %s", args.file)
+            sys.exit(2)
+
+        out_dir = args.output_dir or str(fpath.parent)
+        pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
+
+        results = process_excel_file(str(fpath), out_dir, args.sheet, logger=logger)
+        if not args.quiet:
+            logger.info("Processed %d sheets.", len(results))
+
+    except Exception as e:
+        logger.exception("Unexpected error: %s", e)
+        sys.exit(1)
