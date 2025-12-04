@@ -91,8 +91,79 @@
 
 ---
 
-## 문의
 
-저자: ehdnshine-AI (dnshine_doc-file-parser)
+# RAG 구축 
 
-즐겁게 사용하세요! ✨
+
+## 구축 환경
+<pre>
+  PRETTY_NAME="Ubuntu 24.04.3 LTS"
+  NAME="Ubuntu"
+  VERSION_ID="24.04"
+  VERSION="24.04.3 LTS (Noble Numbat)"
+  VERSION_CODENAME=noble
+  ID=ubuntu
+  ID_LIKE=debian
+  HOME_URL="https://www.ubuntu.com/"
+  SUPPORT_URL="https://help.ubuntu.com/"
+  BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"
+  PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-policy"
+  UBUNTU_CODENAME=noble
+  LOGO=ubuntu-logo
+</pre>
+
+## python install
+
+```
+  python3 --version
+  pip3 --version
+
+  # 설치되어 있지 않다면
+  sudo apt update
+  sudo apt install python3 python3-pip -y
+
+  # venv 설치
+  sudo apt install python3-venv -y
+
+  # 가상환경 생성
+  python3 -m venv ~/venv312
+
+  # 가상환경 활성화
+  source ~/venv312/bin/activate
+```
+
+## 필요한 패키지 설치
+
+```
+  python -m pip install --upgrade pip
+  python -m pip install fastapi uvicorn chromadb openai pydantic
+  python -m pip install python-docx pandas openpyxl pytablewriter
+
+```
+## 프로젝트 구조
+<pre>
+
+  rag_project/
+  ├── .env                      # 환경 변수
+  ├── requirements.txt          # Python 패키지 목록
+  ├── rag_embedding.py          # 임베딩 생성 및 저장 스크립트
+  ├── rag_server.py            # FastAPI 서버
+  ├── test_client.py           # 테스트 클라이언트
+  ├── md_files/                # MD 파일들이 저장될 디렉토리
+  │   ├── doc1.md
+  │   └── doc2.md
+  └── chroma_db/               # ChromaDB 데이터 (자동 생성)
+
+  </pre>
+
+```
+  cat > requirements.txt << EOF
+  fastapi==0.109.0
+  uvicorn[standard]==0.27.0
+  chromadb==0.4.22
+  openai==1.10.0
+  pydantic==2.5.0
+  python-dotenv==1.0.0
+  EOF
+
+``
