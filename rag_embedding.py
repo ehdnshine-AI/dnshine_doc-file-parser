@@ -50,10 +50,10 @@ def process_md_files(directory_path):
     md_files = glob.glob(f"{directory_path}/**/*.md", recursive=True)
     
     if not md_files:
-        print(f"{directory_path}에서 MD 파일을 찾을 수 없습니다.")
+        print(f"⚠️ {directory_path}에서 MD 파일을 찾을 수 없습니다.")
         return
     
-    print(f"총 {len(md_files)}개의 MD 파일을 찾았습니다.")
+    print(f"📚 총 {len(md_files)}개의 MD 파일을 찾았습니다.")
     
     total_chunks = 0
     
@@ -68,7 +68,7 @@ def process_md_files(directory_path):
             chunks = split_into_chunks(content)
             
             if not chunks:
-                print(f"파일이 비어있거나 처리할 수 없습니다.")
+                print(f"  ⚠️ 파일이 비어있거나 처리할 수 없습니다.")
                 continue
             
             for chunk_idx, chunk in enumerate(chunks):
@@ -91,10 +91,10 @@ def process_md_files(directory_path):
                 )
             
             total_chunks += len(chunks)
-            print(f"{len(chunks)}개 청크 처리 완료")
+            print(f"  ✅ {len(chunks)}개 청크 처리 완료")
             
         except Exception as e:
-            print(f"오류 발생: {str(e)}")
+            print(f"  ❌ 오류 발생: {str(e)}")
     
     return total_chunks
 
@@ -115,9 +115,9 @@ def reset_database():
     """데이터베이스 초기화 (모든 데이터 삭제)"""
     try:
         chroma_client.delete_collection(name="md_documents")
-        print("데이터베이스가 초기화되었습니다.")
+        print("✅ 데이터베이스가 초기화되었습니다.")
     except:
-        print("초기화할 데이터가 없습니다.")
+        print("ℹ️ 초기화할 데이터가 없습니다.")
 
 # 메인 실행
 if __name__ == "__main__":
@@ -137,7 +137,7 @@ if __name__ == "__main__":
     if choice == "1":
         directory = input("MD 파일 디렉토리 경로 (기본값: ./md_files): ").strip()
         if not directory:
-            directory = "./output_folder"
+            directory = "./md_files"
         
         print(f"\n📁 디렉토리: {directory}")
         total = process_md_files(directory)
@@ -170,7 +170,7 @@ if __name__ == "__main__":
             reset_database()
     
     elif choice == "4":
-        print("종료합니다.")
+        print("👋 종료합니다.")
     
     else:
-        print("잘못된 선택입니다.")
+        print("❌ 잘못된 선택입니다.")
