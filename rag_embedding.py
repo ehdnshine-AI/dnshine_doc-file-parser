@@ -53,7 +53,7 @@ def process_md_files(directory_path):
         print(f"⚠️ {directory_path}에서 MD 파일을 찾을 수 없습니다.")
         return
     
-    print(f"📚 총 {len(md_files)}개의 MD 파일을 찾았습니다.")
+    print(f"총 {len(md_files)}개의 MD 파일을 찾았습니다.")
     
     total_chunks = 0
     
