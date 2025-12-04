@@ -205,5 +205,59 @@ python rag_server.py
 ### 또는 uvicorn으로 실행 (개발 모드)
 ```
 uvicorn rag_server:app --reload --host 0.0.0.0 --port 8000
+
+```
+
+### 출력 예시
+<pre>
+  🚀 RAG API 서버를 시작합니다...
+  📖 API 문서: http://localhost:8000/docs
+  INFO:     Started server process
+  INFO:     Uvicorn running on http://0.0.0.0:8000
+</pre>
+
+#### curl 상태 확인
+```
+curl http://localhost:8000/health
+```
+
+#### 문서 검색
+```
+curl -X POST http://localhost:8000/search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "RAG란 무엇인가요?",
+    "n_results": 3
+  }'
+```
+
+#### RAG 질의응답
+```
+curl -X POST http://localhost:8000/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "RAG의 주요 구성요소는 무엇인가요?",
+    "n_results": 3,
+    "model": "gpt-4o-mini"
+  }'
+```
+
+### python request 
+
+```
+import requests
+
+# 질의응답
+response = requests.post(
+    "http://localhost:8000/query",
+    json={
+        "question": "RAG 시스템의 장점은?",
+        "n_results": 3,
+        "model": "gpt-4o-mini"
+    }
+)
+
+print(response.json()['answer'])
+
 ```
 
