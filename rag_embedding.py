@@ -3,6 +3,7 @@ import chromadb
 from openai import OpenAI
 import glob
 from dotenv import load_dotenv
+from typing import List, Dict
 
 # 환경 변수 로드
 load_dotenv()
@@ -71,6 +72,12 @@ def process_md_files(directory_path):
                 print(f"  ⚠️ 파일이 비어있거나 처리할 수 없습니다.")
                 continue
             
+            # 메타데이터 생성
+            doc_metadata = {
+                "source_file": os.path.basename(file_path),
+                "source_path": file_path
+            }
+            
             for chunk_idx, chunk in enumerate(chunks):
                 # 임베딩 생성
                 embedding = get_openai_embedding(chunk)
@@ -82,8 +89,7 @@ def process_md_files(directory_path):
                     embeddings=[embedding],
                     documents=[chunk],
                     metadatas=[{
-                        "source": file_path,
-                        "filename": os.path.basename(file_path),
+                        **doc_metadata,
                         "chunk_index": chunk_idx,
                         "total_chunks": len(chunks)
                     }],
