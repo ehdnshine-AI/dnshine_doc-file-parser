@@ -1,275 +1,291 @@
-from docx import Document
-import os
+#!/usr/bin/env python3
+"""Parse .docx files and store page-sized Markdown chunks into PostgreSQL."""
+
+from __future__ import annotations
+
 import argparse
 import logging
 import pathlib
+import re
 import sys
+from typing import Iterable, List, Sequence
 
-import os
-import pathlib
-from docx import Document
+from docx import Document as LoadDocx
+from docx.document import Document as DocxDocument
+from docx.table import _Cell, Table
+from docx.text.paragraph import Paragraph
+from docx.oxml.ns import qn
 import psycopg2
+from psycopg2 import sql
+from psycopg2.extras import execute_batch
+
 from db_config import DB_CONFIG
 
-def docx_to_markdown_full(docx_path, md_path, image_dir="images"):
-    """Convert a single .docx file to Markdown.
-
-    - docx_path: path to source .docx
-    - md_path: path to write resulting markdown (.md)
-    - image_dir: path to store any images (will be created)
-    """
-    doc = Document(docx_path)
-    md_lines = []
-
-    # 이미지 저장 폴더 생성
+LOGGER_NAME = "docs-parse-to-db"
+W_NAMESPACE = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+W_BR = qn("w:br")
+W_TYPE = qn("w:type")
+W_LAST_RENDERED_PAGE_BREAK = qn("w:lastRenderedPageBreak")
+W_SECT_PR = qn("w:sectPr")
+IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
+def iter_block_items(parent: DocxDocument | _Cell) -> Iterable[Paragraph | Table]:
+    """Yield document-level paragraphs and tables in reading order."""
+
+    if isinstance(parent, DocxDocument):
+        parent_element = parent.element.body
+    elif isinstance(parent, _Cell):  # pragma: no branch - only used when tables nest
+        parent_element = parent._tc
+    else:  # pragma: no cover - defensive; should not happen in normal flow
+        raise TypeError(f"Unsupported parent type: {type(parent)!r}")
+
+    for child in parent_element.iterchildren():
+        if child.tag.endswith("}p"):
+            yield Paragraph(child, parent)
+        elif child.tag.endswith("}tbl"):
+            yield Table(child, parent)
 
 
-    def insert_markdown_to_db(content):
-        """Insert markdown content into PostgreSQL markdown_table."""
-        conn = None
+def paragraph_to_markdown_lines(paragraph: Paragraph) -> List[str]:
+    text = paragraph.text.strip()
+    if not text:
+        return []
+
+    lines: List[str] = []
+    style_name = getattr(paragraph.style, "name", "") or ""
+    if style_name.startswith("Heading"):
         try:
-            conn = psycopg2.connect(
-                host=DB_CONFIG["host"],
-                port=DB_CONFIG["port"],
-                user=DB_CONFIG["user"],
-                password=DB_CONFIG["password"],
-                dbname=DB_CONFIG["database"]
-            )
-            cur = conn.cursor()
-            # Create table if not exists
-            create_table_query = '''
-                CREATE TABLE IF NOT EXISTS public.markdown_table (
-                    id SERIAL PRIMARY KEY,
-                    content TEXT NOT NULL
-                );
-            '''
-            cur.execute(create_table_query)
-            # Insert content
-            insert_query = "INSERT INTO markdown_table (content) VALUES (%s)"
-            cur.execute(insert_query, (content,))
-            conn.commit()
-            cur.close()
-        except Exception as e:
-            print(f"DB Insert Error: {e}")
+            level = int(style_name.split()[1])
+        except (IndexError, ValueError):
+            level = 1
+        level = max(1, min(level, 6))
+        lines.append(f"{'#' * level} {text}")
+    else:
+        lines.append(text)
 
-        finally:
-            if conn:
-                conn.close()
-
-def docx_to_markdown_full(docx_path, md_path, image_dir="images"):
-    """Convert a single .docx file to Markdown and save to file and DB."""
-    doc = Document(docx_path)
-    md_lines = []
-
-    # Create image directory
-    os.makedirs(image_dir, exist_ok=True)
-    image_count = 1
-
-    # Process paragraphs (headings and text)
-    for para in doc.paragraphs:
-        text = para.text.strip()
-        if not text:
+    # Emit simple hyperlink references as additional lines (best-effort).
+    for run in paragraph.runs:
+        hyperlink = getattr(run, "hyperlink", None)
+        if not hyperlink:
             continue
+        target = getattr(hyperlink, "target", "")
+        if not target:
+            continue
+        link_text = run.text.strip() or target
+        lines.append(f"[{link_text}]({target})")
 
-        # Process paragraphs (headings and text)
-        for para in doc.paragraphs:
-            text = para.text.strip()
-            if not text:
-                continue
+    return lines
 
-            try:
-                style_name = para.style.name
-            except Exception:
-                style_name = ""
 
-            if style_name.startswith("Heading"):
-                try:
-                    level = int(style_name.replace("Heading ", ""))
-                except ValueError:
-                    level = 1
-                md_lines.append("#" * level + " " + text)
-            else:
-                md_lines.append(text)
+def table_to_markdown_lines(table: Table, index: int) -> List[str]:
+    lines = [f"### Table {index}"]
+    for row in table.rows:
+        cells = [" ".join(cell.text.split()) for cell in row.cells]
+        lines.append("| " + " | ".join(cells) + " |")
+    lines.append("")
+    return lines
 
-            # Simple hyperlink handling
-            for run in para.runs:
-                if hasattr(run, "hyperlink") and run.hyperlink:
-                    try:
-                        url = run.hyperlink.target
-                        link_text = run.text.strip() or url
-                        md_lines.append(f"[{link_text}]({url})")
-                    except Exception:
-                        pass
 
-        # Process tables
-        for t_idx, table in enumerate(doc.tables, start=1):
-            md_lines.append(f"\n### Table {t_idx}\n")
-            for row in table.rows:
-                cells = [cell.text.strip() for cell in row.cells]
-                md_lines.append("| " + " | ".join(cells) + " |")
-            md_lines.append("\n")
+def _paragraph_breaks_before(paragraph: Paragraph) -> bool:
+    return bool(getattr(paragraph.paragraph_format, "page_break_before", False))
 
-        # Image extraction helper
-        def _unique_filename(dirpath, base, ext):
-            os.makedirs(dirpath, exist_ok=True)
-            candidate = f"{base}{ext}"
-            i = 1
-            while os.path.exists(os.path.join(dirpath, candidate)):
-                candidate = f"{base}_{i}{ext}"
-                i += 1
-            return candidate
 
-        for rel in getattr(doc.part, "rels", {}).values():
-            try:
-                if "image" in rel.reltype:
-                    image_data = rel.target_part.blob
-                    ext = None
-                    try:
-                        partname = getattr(rel.target_part, 'partname', None)
-                        if partname:
-                            ext = pathlib.Path(partname).suffix
-                    except Exception:
-                        ext = None
+def _paragraph_has_page_break(paragraph: Paragraph) -> bool:
+    element = paragraph._element
+    for br in element.iter(W_BR):
+        if br.get(W_TYPE) == "page":
+            return True
+    if any(True for _ in element.iter(W_LAST_RENDERED_PAGE_BREAK)):
+        return True
+    if any(True for _ in element.iter(W_SECT_PR)):
+        return True
+    return False
 
-                    if not ext:
-                        try:
-                            ctype = getattr(rel.target_part, 'content_type', '')
-                            if '/' in ctype:
-                                subtype = ctype.split('/')[1]
-                                subtype = subtype.split('+')[0]
-                                ext = '.' + ('jpg' if subtype == 'jpeg' else subtype)
-                        except Exception:
-                            ext = '.bin'
 
-                    if not ext:
-                        ext = '.bin'
+def _finalize_page(buffer: List[str]) -> str:
+    content = "\n\n".join(line.strip() for line in buffer if line.strip()).strip()
+    buffer.clear()
+    return content
 
-                    base = f"image_{image_count}"
-                    fname = _unique_filename(image_dir, base, ext)
-                    image_filename = os.path.join(image_dir, fname)
-                    with open(image_filename, "wb") as f:
-                        f.write(image_data)
-                    relpath = os.path.relpath(image_filename, os.path.dirname(md_path))
-                    md_lines.append(f"![{base}]({relpath})")
-                    image_count += 1
-            except Exception:
-                continue
 
-        markdown_content = "\n\n".join(md_lines)
+def extract_markdown_pages(document: DocxDocument) -> List[str]:
+    pages: List[str] = []
+    current_lines: List[str] = []
+    table_counter = 0
 
-        # Write markdown file
-        with open(md_path, "w", encoding="utf-8") as f:
-            f.write(markdown_content)
+    for block in iter_block_items(document):
+        if isinstance(block, Paragraph):
+            if current_lines and _paragraph_breaks_before(block):
+                page = _finalize_page(current_lines)
+                if page:
+                    pages.append(page)
+            lines = paragraph_to_markdown_lines(block)
+            if lines:
+                current_lines.extend(lines)
+            if _paragraph_has_page_break(block):
+                page = _finalize_page(current_lines)
+                if page:
+                    pages.append(page)
+        else:  # Table
+            table_counter += 1
+            lines = table_to_markdown_lines(block, table_counter)
+            if lines:
+                current_lines.extend(lines)
 
-        # Insert into DB
-        insert_markdown_to_db(markdown_content)
-        raise PermissionError(f"Cannot create or write to output directory: {output_dir} — check permissions")
-    except Exception as e:
-        logger.error(f"Error processing file: {e}")
-        raise
-        raise OSError(f"Failed to create output directory {output_dir}: {e}")
+    page = _finalize_page(current_lines)
+    if page:
+        pages.append(page)
+
+    return pages
+
+
+def convert_docx_to_pages(docx_path: pathlib.Path) -> List[str]:
+    document = LoadDocx(str(docx_path))
+    return extract_markdown_pages(document)
+
+
+def _table_identifier(table_name: str) -> sql.Identifier:
+    parts = table_name.split(".")
+    if not parts or any(not IDENTIFIER_RE.match(part) for part in parts):
+        raise ValueError(f"Invalid table name: {table_name}")
+    return sql.Identifier(*parts)
+
+
+def insert_pages(
+    conn: psycopg2.extensions.connection,
+    table_name: str,
+    filename: str,
+    pages: Sequence[str],
+) -> int:
+    if not pages:
+        return 0
+
+    identifier = _table_identifier(table_name)
+    with conn.cursor() as cur:
+        statement = sql.SQL(
+            "INSERT INTO {} (filename, page_number, content) VALUES (%s, %s, %s)"
+        ).format(identifier)
+        values = (
+            (filename, str(index), page)
+            for index, page in enumerate(pages, start=1)
+        )
+        execute_batch(cur, statement.as_string(cur), values)
+    conn.commit()
+    return len(pages)
+
+
+def collect_target_files(file_path: str | None, input_dir: str | None, recursive: bool) -> List[pathlib.Path]:
+    if file_path:
+        p = pathlib.Path(file_path)
+        if not p.exists() or not p.is_file():
+            raise FileNotFoundError(f"Input file not found: {file_path}")
+        return [p]
+
+    if not input_dir:
+        raise ValueError("Either --file or --input-dir must be provided")
+
+    base = pathlib.Path(input_dir)
+    if not base.exists():
+        raise FileNotFoundError(f"Input directory not found: {input_dir}")
+    if not base.is_dir():
+        raise NotADirectoryError(f"Input path is not a directory: {input_dir}")
 
     pattern = "**/*.docx" if recursive else "*.docx"
-    files = list(p.glob(pattern))
-    processed = []
+    files = sorted(p for p in base.glob(pattern) if p.is_file())
+    return files
 
-    for f in files:
-        if not f.is_file():
-            continue
 
-        # construct output names
-        stem = f.stem
-        md_name = stem + ".md"
-        md_path = out_p.joinpath(md_name)
+def configure_logging(verbose: bool, quiet: bool) -> logging.Logger:
+    log_level = logging.WARNING
+    if quiet:
+        log_level = logging.ERROR
+    elif verbose:
+        log_level = logging.INFO
 
-        # image dir: per-file subdir under output_dir
-        image_dir = out_p.joinpath(f"{stem}_{image_subdir_name}")
-        try:
-            docx_to_markdown_full(str(f), str(md_path), str(image_dir))
-            processed.append((str(f), str(md_path), str(image_dir)))
-            if logger:
-                logger.info("Converted: %s -> %s (images: %s)", f, md_path, image_dir)
-            else:
-                print(f"Converted: {f} -> {md_path} (images: {image_dir})")
-        except Exception as e:
-            if logger:
-                logger.exception("Failed to convert %s", f)
-            else:
-                print(f"Failed to convert {f}: {e}", file=sys.stderr)
+    logging.basicConfig(level=log_level, format="[%(levelname)s] %(message)s")
+    return logging.getLogger(LOGGER_NAME)
 
-    if not processed and logger:
-        logger.warning("No .docx files were found in %s (pattern=%s)", input_dir, pattern)
 
-    return processed
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Convert .docx files into Markdown pages and insert into PostgreSQL"
+    )
+
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--file", help="Single .docx file to ingest")
+    group.add_argument("--input-dir", help="Directory containing .docx files to ingest")
+
+    parser.add_argument("--table", default="markdown_table", help="Target table name (default: markdown_table)")
+    parser.add_argument("--recursive", action="store_true", help="Recurse into subdirectories when using --input-dir")
+    parser.add_argument("--verbose", action="store_true", help="Enable INFO logging")
+    parser.add_argument("--quiet", action="store_true", help="Only show warnings and errors")
+
+    return parser.parse_args(argv)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
+    logger = configure_logging(args.verbose, args.quiet)
+
+    try:
+        targets = collect_target_files(args.file, args.input_dir, args.recursive)
+    except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
+        logger.error(str(exc))
+        return 2
+
+    if not targets:
+        logger.warning("No .docx files were found for the provided path")
+        return 0
+
+    try:
+        conn = psycopg2.connect(
+            host=DB_CONFIG["host"],
+            port=DB_CONFIG["port"],
+            user=DB_CONFIG["user"],
+            password=DB_CONFIG["password"],
+            dbname=DB_CONFIG["database"],
+        )
+    except Exception as exc:
+        logger.error("Failed to connect to PostgreSQL: %s", exc)
+        return 5
+
+    total_pages = 0
+    processed_files = 0
+
+    try:
+        for path in targets:
+            try:
+                pages = convert_docx_to_pages(path)
+            except Exception as exc:  # pragma: no cover - defensive for unexpected docx issues
+                logger.error("Failed to parse %s: %s", path, exc)
+                continue
+
+            if not pages:
+                logger.info("Skipping %s because no textual content was extracted", path)
+                continue
+
+            try:
+                inserted = insert_pages(conn, args.table, path.name, pages)
+            except Exception as exc:
+                conn.rollback()
+                logger.error("Failed to insert %s (rolled back): %s", path, exc)
+                continue
+
+            processed_files += 1
+            total_pages += inserted
+            logger.info("Inserted %d page(s) from %s", inserted, path)
+    finally:
+        conn.close()
+
+    logger.info(
+        "Completed run: %d file(s) processed, %d page(s) inserted into %s",
+        processed_files,
+        total_pages,
+        args.table,
+    )
+    return 0
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="Convert .docx files into Markdown files (single-file or directory batch mode)")
-
-    group = ap.add_mutually_exclusive_group(required=True)
-    group.add_argument("--input-dir", help="Directory with .docx files to convert")
-    group.add_argument("--file", help="Single .docx file to convert")
-
-    ap.add_argument("--output-dir", default=None, help="Directory to write .md files and images (for --file, defaults to parent folder)" )
-    ap.add_argument("--images-subdir", default="images", help="Name for per-file images subdirectory suffix (default 'images')")
-    ap.add_argument("--recursive", action="store_true", help="Recurse into subdirectories to find .docx files")
-    ap.add_argument("--quiet", action="store_true", help="Minimal output")
-    ap.add_argument("--verbose", action="store_true", help="Show detailed processing info (INFO level)")
-    args = ap.parse_args()
-
-    # configure logging
-    log_level = logging.WARNING
-    if args.quiet:
-        log_level = logging.ERROR
-    elif args.verbose:
-        log_level = logging.INFO
-    logging.basicConfig(level=log_level, format="[%(levelname)s] %(message)s")
-    logger = logging.getLogger("docs-parser")
-
-    try:
-        if args.file:
-            # single-file mode
-            fpath = pathlib.Path(args.file)
-            if not fpath.exists() or not fpath.is_file():
-                logger.error("Input file does not exist or is not a file: %s", args.file)
-                sys.exit(2)
-
-            # determine output directory
-            out_dir = args.output_dir or str(fpath.parent)
-            pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
-
-            stem = fpath.stem
-            md_path = pathlib.Path(out_dir).joinpath(stem + ".md")
-            image_dir = pathlib.Path(out_dir).joinpath(f"{stem}_{args.images_subdir}")
-            try:
-                docx_to_markdown_full(str(fpath), str(md_path), str(image_dir))
-                logger.info("Converted file: %s -> %s (images: %s)", fpath, md_path, image_dir)
-            except Exception:
-                logger.exception("Failed to convert %s", fpath)
-                sys.exit(1)
-        else:
-            # directory/batch mode
-            if not args.input_dir:
-                logger.error("--input-dir must be provided in directory mode.")
-                sys.exit(2)
-            results = process_directory(args.input_dir, args.output_dir or '.', image_subdir_name=args.images_subdir, recursive=args.recursive, logger=logger)
-            if not args.quiet:
-                logger.info("Processed %d files.", len(results))
-    except FileNotFoundError as e:
-        logger.error(str(e))
-        logger.info("Verify the path and try again.")
-        sys.exit(2)
-    except NotADirectoryError as e:
-        logger.error(str(e))
-        sys.exit(2)
-    except PermissionError as e:
-        logger.error(str(e))
-        sys.exit(3)
-    except OSError as e:
-        logger.error(str(e))
-        sys.exit(3)
-    except Exception as e:
-        logger.exception("Unexpected error: %s", e)
-        sys.exit(1)
+    sys.exit(main())

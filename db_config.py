@@ -5,5 +5,7 @@ DB_CONFIG = {
     "port": 5432,
     "user": "mydata",
     "password": "mydata123",
-    "database": "mydatabase"  # You may want to specify the database name here
+    "database": "mydata"
+    ""
+    ""  # You may want to specify the database name here
 }
