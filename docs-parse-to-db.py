@@ -40,7 +40,7 @@ def docx_to_markdown_full(docx_path, md_path, image_dir="images"):
             cur = conn.cursor()
             # Create table if not exists
             create_table_query = '''
-                CREATE TABLE IF NOT EXISTS markdown_table (
+                CREATE TABLE IF NOT EXISTS public.markdown_table (
                     id SERIAL PRIMARY KEY,
                     content TEXT NOT NULL
                 );
@@ -53,18 +53,25 @@ def docx_to_markdown_full(docx_path, md_path, image_dir="images"):
             cur.close()
         except Exception as e:
             print(f"DB Insert Error: {e}")
+
         finally:
             if conn:
                 conn.close()
-        if not text:
-    def docx_to_markdown_full(docx_path, md_path, image_dir="images"):
-        """Convert a single .docx file to Markdown and save to file and DB."""
-        doc = Document(docx_path)
-        md_lines = []
 
-        # Create image directory
-        os.makedirs(image_dir, exist_ok=True)
-        image_count = 1
+def docx_to_markdown_full(docx_path, md_path, image_dir="images"):
+    """Convert a single .docx file to Markdown and save to file and DB."""
+    doc = Document(docx_path)
+    md_lines = []
+
+    # Create image directory
+    os.makedirs(image_dir, exist_ok=True)
+    image_count = 1
+
+    # Process paragraphs (headings and text)
+    for para in doc.paragraphs:
+        text = para.text.strip()
+        if not text:
+            continue
 
         # Process paragraphs (headings and text)
         for para in doc.paragraphs:
@@ -160,6 +167,8 @@ def docx_to_markdown_full(docx_path, md_path, image_dir="images"):
         insert_markdown_to_db(markdown_content)
         raise PermissionError(f"Cannot create or write to output directory: {output_dir} — check permissions")
     except Exception as e:
+        logger.error(f"Error processing file: {e}")
+        raise
         raise OSError(f"Failed to create output directory {output_dir}: {e}")
 
     pattern = "**/*.docx" if recursive else "*.docx"
